@@ -382,8 +382,9 @@ function renderChart(){
 }
 
 /* ---------- Movimenti ---------- */
-function renderList(){
-  const rows=of(ym(cur)).filter(t=>!filt||t.tipo===filt).sort((a,b)=>b.data.localeCompare(a.data));
+function renderList(keep){
+  const L=$("#list"),st=L.scrollTop;
+  const rows=of(ym(cur)).filter(t=>!filt||t.tipo===filt).sort((a,b)=>a.data.localeCompare(b.data));
   let html="",day="";
   rows.forEach(t=>{
     if(t.data!==day){day=t.data;html+=`<div class="day">${new Date(t.data+"T12:00").toLocaleDateString("it-IT",{weekday:"long",day:"numeric",month:"long"})}</div>`}
@@ -392,6 +393,8 @@ function renderList(){
       <span class="a num" style="color:var(--${t.tipo==="entrata"?"in":"out"})">${t.tipo==="entrata"?"+":"−"}${eur(t.importo,true)}</span>
       <button class="del" data-del="${t.id}">Elimina</button></div>`});
   $("#list").innerHTML=html||`<div class="empty">Nessun movimento in questo mese.<br>Tocca + per aggiungerne uno.</div>`;
+  L.scrollTop=keep?st:L.scrollHeight;
+  if(!keep){requestAnimationFrame(()=>L.scrollTop=L.scrollHeight);document.fonts&&document.fonts.ready.then(()=>view==="movimenti"&&(L.scrollTop=L.scrollHeight))}
   $("#listTot").innerHTML=`<span>${rows.length} moviment${rows.length===1?"o":"i"}</span><span>${filt==="entrata"?"Totale "+eur(ins(rows),true):filt==="uscita"?"Totale "+eur(outs(rows),true):"Saldo "+eur(ins(rows)-outs(rows),true)}</span>`;
 }
 
@@ -510,7 +513,7 @@ $("#next").onclick=()=>{cur=addM(cur,1);render()};
 $("#flt").onclick=e=>{const b=e.target.closest("button");if(!b)return;filt=b.dataset.f;$$("#flt button").forEach(x=>x.setAttribute("aria-pressed",x===b));renderList()};
 $("#list").onclick=e=>{
   const d=e.target.closest("[data-del]");
-  if(d){S.tx=S.tx.filter(t=>t.id!==d.dataset.del);save();renderList();toast("Movimento eliminato");return}
+  if(d){S.tx=S.tx.filter(t=>t.id!==d.dataset.del);save();renderList(true);toast("Movimento eliminato");return}
   const it=e.target.closest(".item");if(!it)return;const was=it.classList.contains("open");$$(".item.open").forEach(x=>x.classList.remove("open"));if(!was)it.classList.add("open");
 };
 $("#aiAsk").onclick=askAI;
