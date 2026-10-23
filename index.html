@@ -66,7 +66,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .rate .track i{position:absolute;inset:0 auto 0 0;border-radius:4px;background:var(--accent)}
 .rate .track u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);border-radius:1px}
 .rate small{font-size:12.5px;color:var(--muted);display:flex;justify-content:space-between}
-.chartcard{flex:1 1 auto;min-height:170px;display:flex;flex-direction:column;gap:6px}
+.fccard{flex:none;display:grid;gap:9px}
+.crow .t i.stripe{background-image:repeating-linear-gradient(135deg,transparent 0 4px,rgba(255,255,255,.35) 4px 7px)}
+.crow .t i.avg{background:var(--muted);opacity:.45}
 .fc-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
 .fc-head strong{font-family:var(--display);font-weight:500;font-size:24px;line-height:1.05;display:block}
 .fc-head small{font-size:12.5px;color:var(--muted)}
@@ -86,7 +88,7 @@ svg text{fill:var(--muted);font-family:var(--body);font-size:11px}
 .tip{flex:none;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;text-align:left;width:100%}
 .tip p{margin:2px 0 0;font-size:13.5px}
 .tip .go{color:var(--accent);font-size:20px}
-@media (max-height:860px){.hide-short{display:none!important}.cats .crow:nth-child(n+5){display:none}}
+@media (max-height:860px){.hide-short{display:none!important}}
 @media (max-height:700px){.hide-xs,.hero .rate{display:none!important}.hero{gap:7px}.hero .big{font-size:30px}.cats .crow:nth-child(n+4){display:none}}
 
 /* Movimenti */
@@ -183,7 +185,7 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--a
         </div>
         <div class="rate"><div class="track"><i id="hRate"></i><u id="hGoal"></u></div><small><span id="hRateTxt"></span><span id="hGoalTxt"></span></small></div>
       </div>
-      <div class="card chartcard"><span class="label" id="fcLabel">Previsione uscite</span><div class="fc-head" id="fcHead"></div><div class="chartbox" id="chart"></div><div class="next hide-xs" id="fcNext"></div></div>
+      <div class="card fccard"><span class="label" id="fcLabel">Previsione uscite</span><div class="fc-head" id="fcHead"></div><div class="cats" id="fcRows"></div><div class="next hide-xs" id="fcNext"></div></div>
       <div class="card cats" id="hCats"></div>
       <button class="card tip hide-short" data-go="consigli" id="hTip"></button>
     </section>
@@ -347,7 +349,7 @@ function forecast(month){
   const due=fixed.filter(f=>!have.has(f.k));
   const proj=[actual[td]];
   for(let d=td+1;d<=days;d++){let v=rate;due.forEach(f=>{if(f.giorno===d||(f.giorno<=td&&d===td+1))v+=f.importo});proj.push(proj[proj.length-1]+v)}
-  const total=proj[proj.length-1];
+  const total=proj[proj.length-1], fixedDue=td<days?due.reduce((s,f)=>s+f.importo,0):0, varLeft=rate*(days-td);
   // entrate attese: entrate ricorrenti non ancora arrivate
   const inNow=of(ym(month)).filter(t=>t.tipo==="entrata"),inHave=new Set(inNow.map(key)),inSeen={};
   [1,2,3].forEach(k=>of(ym(addM(month,-k))).filter(t=>t.tipo==="entrata").forEach(t=>{const kk=key(t);(inSeen[kk]=inSeen[kk]||[]).push(t.importo)}));
@@ -357,37 +359,26 @@ function forecast(month){
   const next=[];if(isCur||!isPast){const start=isCur?today:month;
     for(let i=isCur?1:0;i<=30;i++){const d=new Date(start.getFullYear(),start.getMonth(),start.getDate()+i),dd=d.getDate(),dm=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
       fixed.forEach(f=>{if(Math.min(f.giorno,dm)===dd&&!(ym(d)===ym(month)&&have.has(f.k)))next.push({...f,data:d})})}}
-  return{days,td,actual,proj,total,spent:actual[td],rate,avgOut,income,saldo:income-total,next,fixed,hasHist:hist.length>0};
+  return{days,td,actual,proj,total,fixedDue,varLeft,spent:actual[td],rate,avgOut,income,saldo:income-total,next,fixed,hasHist:hist.length>0};
 }
 function renderChart(){
-  const f=forecast(cur),mName=cur.toLocaleDateString("it-IT",{month:"long"});
-  const box=$("#chart");
-  $("#fcLabel").textContent=f.td===f.days?`Uscite di ${mName}`:`Previsione uscite di ${mName}`;
-  if(!f.hasHist&&!f.spent){$("#fcHead").innerHTML=`<small>Servono almeno un paio di mesi di movimenti per fare una previsione.</small>`;box.innerHTML="";$("#fcNext").innerHTML="";return}
-  const left=f.total-f.spent;
-  $("#fcHead").innerHTML=f.td===f.days
-    ?`<span><strong class="num">${eur(f.total)}</strong><small>totale del mese${f.avgOut?` · media ${eur(f.avgOut)}`:""}</small></span>`
-    :`<span><strong class="num">≈ ${eur(f.total)}</strong><small>a fine mese · spesi ${eur(f.spent)} · mancano ~${eur(left)}</small></span>
+  const f=forecast(cur),mName=cur.toLocaleDateString("it-IT",{month:"long"}),done=f.td===f.days;
+  $("#fcLabel").textContent=done?`Uscite di ${mName}`:`Previsione uscite di ${mName}`;
+  $("#fcNext").hidden=done;
+  if(!f.hasHist&&!f.spent){$("#fcHead").innerHTML=`<small>Servono almeno un paio di mesi di movimenti per fare una previsione.</small>`;$("#fcRows").innerHTML="";$("#fcNext").innerHTML="";return}
+  $("#fcHead").innerHTML=done
+    ?`<span><strong class="num">${eur(f.total)}</strong><small>totale del mese</small></span>`
+    :`<span><strong class="num">≈ ${eur(f.total)}</strong><small>stima a fine mese</small></span>
       <span class="r"><small>saldo previsto</small><b class="num" style="color:var(--${f.saldo>=0?"in":"out"})">${f.saldo>=0?"+":"−"}${eur(Math.abs(f.saldo))}</b></span>`;
-  $("#fcNext").hidden=f.td===f.days;
+  const mx=Math.max(f.total,f.avgOut,1);
+  const bar=(name,v,cls,shown)=>`<div class="crow"><span>${name}</span><span class="v num">${shown}</span><div class="t"><i class="${cls}" style="width:${v/mx*100}%;background:${cls==="avg"?"":"var(--out)"}"></i></div></div>`;
+  let rows=done?bar("Spese del mese",f.total,"",eur(f.total))
+    :bar("Già spese",f.spent,"",eur(f.spent))+bar("Fisse in arrivo",f.fixedDue,"stripe",eur(f.fixedDue))+bar("Variabili stimate",f.varLeft,"stripe","~"+eur(f.varLeft));
+  if(f.avgOut){const d=f.total-f.avgOut;
+    rows+=bar(`Media degli ultimi mesi <small style="color:var(--${Math.abs(d)<f.avgOut*.03?"muted":d>0?"out":"in"})">${Math.abs(d)<f.avgOut*.03?"in linea":(d>0?"+":"−")+eur(Math.abs(d))+(d>0?" sopra":" sotto")}</small>`,f.avgOut,"avg",eur(f.avgOut))}
+  $("#fcRows").innerHTML=rows;
   $("#fcNext").innerHTML=f.next.length?f.next.slice(0,4).map(n=>`<span><em>${n.data.getDate()} ${n.data.toLocaleDateString("it-IT",{month:"short"})}</em> ${esc(n.nome)} ${eur(n.importo)}</span>`).join("")
     :`<span><em>Nessuna uscita fissa nei prossimi 30 giorni</em></span>`;
-  const W=box.clientWidth,H=box.clientHeight; if(!W||!H) return;
-  const top=Math.max(f.total,f.avgOut,100)*1.08, L=4,R=W-4,T=6,B=H-15;
-  const x=d=>L+(R-L)*(d/f.days), y=v=>B-(B-T)*(v/top);
-  let g="";
-  if(f.avgOut){const ya=y(f.avgOut);g+=`<line x1="${L}" x2="${R}" y1="${ya}" y2="${ya}" stroke="var(--muted)" stroke-dasharray="2 4" opacity=".7"/><text x="${L+2}" y="${ya-4}">media ${eur(f.avgOut)}</text>`}
-  if(f.td>0){const pts=f.actual.map((v,d)=>`${x(d)},${y(v)}`).join(" ");
-    g+=`<polygon points="${x(0)},${B} ${pts} ${x(f.td)},${B}" fill="var(--out)" opacity=".14"/><polyline points="${pts}" fill="none" stroke="var(--out)" stroke-width="2.2" stroke-linejoin="round"/>`}
-  if(f.td<f.days){const pts=f.proj.map((v,i)=>`${x(f.td+i)},${y(v)}`).join(" ");
-    g+=`<polyline points="${pts}" fill="none" stroke="var(--out)" stroke-width="2" stroke-dasharray="5 4" opacity=".75"/>`;
-    g+=`<circle cx="${x(f.days)}" cy="${y(f.total)}" r="3.5" fill="var(--out)"/>`}
-  if(f.td>0&&f.td<f.days){g+=`<line x1="${x(f.td)}" x2="${x(f.td)}" y1="${T}" y2="${B}" stroke="var(--line)"/><circle cx="${x(f.td)}" cy="${y(f.spent)}" r="4" fill="var(--surface)" stroke="var(--out)" stroke-width="2"/>`}
-  g+=`<line x1="${L}" x2="${R}" y1="${B}" y2="${B}" stroke="var(--line)"/>`;
-  const ticks=[1,Math.round(f.days/2),f.days];if(f.td>0&&f.td<f.days)ticks.push(f.td);
-  [...new Set(ticks)].forEach(d=>{const isT=d===f.td&&f.td<f.days;
-    if(isT||Math.abs(x(d)-x(f.td))>28||f.td===0||f.td===f.days)g+=`<text x="${Math.min(R-8,Math.max(L+6,x(d)))}" y="${H-2}" text-anchor="middle" style="${isT?"fill:var(--ink);font-weight:600":""}">${isT?"oggi":d}</text>`});
-  box.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Uscite cumulate del mese e previsione fino a fine mese">${g}</svg>`;
 }
 
 /* ---------- Movimenti ---------- */
@@ -553,7 +544,6 @@ $("#entry").onsubmit=e=>{e.preventDefault();
   S.tx.push(t);save();cur=new Date(+t.data.slice(0,4),+t.data.slice(5,7)-1,1);closeSheet();render();
   toast(`${tipo==="entrata"?"Entrata":"Uscita"} di ${eur(t.importo,true)} salvata`)};
 
-addEventListener("resize",()=>{clearTimeout(window.__rz);window.__rz=setTimeout(()=>view==="home"&&renderChart(),120)});
 document.addEventListener("gesturestart",e=>e.preventDefault());
 try{if("serviceWorker" in navigator&&/^(https:|http:\/\/localhost|http:\/\/127\.)/.test(location.href)&&!location.href.includes("claude"))navigator.serviceWorker.register("sw.js").catch(()=>{})}catch(_){}
 go("home");
