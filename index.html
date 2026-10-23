@@ -66,7 +66,15 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .rate .track i{position:absolute;inset:0 auto 0 0;border-radius:4px;background:var(--accent)}
 .rate .track u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);border-radius:1px}
 .rate small{font-size:12.5px;color:var(--muted);display:flex;justify-content:space-between}
-.chartcard{flex:1 1 auto;min-height:96px;display:flex;flex-direction:column;gap:6px}
+.chartcard{flex:1 1 auto;min-height:170px;display:flex;flex-direction:column;gap:6px}
+.fc-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
+.fc-head strong{font-family:var(--display);font-weight:500;font-size:24px;line-height:1.05;display:block}
+.fc-head small{font-size:12.5px;color:var(--muted)}
+.fc-head .r{text-align:right;white-space:nowrap}
+.fc-head .r b{display:block;font-size:15px}
+.next{display:flex;gap:6px;overflow:hidden;flex:none}
+.next span{flex:none;font-size:12px;padding:3px 9px;border-radius:999px;background:var(--grid);color:var(--ink);white-space:nowrap}
+.next span em{font-style:normal;color:var(--muted)}
 .chartbox{flex:1;min-height:0;position:relative}
 .chartbox svg{position:absolute;inset:0}
 svg text{fill:var(--muted);font-family:var(--body);font-size:11px}
@@ -78,9 +86,8 @@ svg text{fill:var(--muted);font-family:var(--body);font-size:11px}
 .tip{flex:none;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;text-align:left;width:100%}
 .tip p{margin:2px 0 0;font-size:13.5px}
 .tip .go{color:var(--accent);font-size:20px}
-@media (max-height:700px){.hide-short{display:none!important}}
-@media (max-height:700px){.hero .big{font-size:32px}.cats .crow:nth-child(n+5){display:none}}
-@media (max-height:600px){.cats .crow:nth-child(n+4){display:none}}
+@media (max-height:860px){.hide-short{display:none!important}.cats .crow:nth-child(n+5){display:none}}
+@media (max-height:700px){.hide-xs,.hero .rate{display:none!important}.hero{gap:7px}.hero .big{font-size:30px}.cats .crow:nth-child(n+4){display:none}}
 
 /* Movimenti */
 .seg{display:flex;background:var(--grid);border-radius:10px;padding:3px;flex:none}
@@ -176,7 +183,7 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--a
         </div>
         <div class="rate"><div class="track"><i id="hRate"></i><u id="hGoal"></u></div><small><span id="hRateTxt"></span><span id="hGoalTxt"></span></small></div>
       </div>
-      <div class="card chartcard"><span class="label">Risparmio negli ultimi 6 mesi</span><div class="chartbox" id="chart"></div></div>
+      <div class="card chartcard"><span class="label" id="fcLabel">Previsione uscite</span><div class="fc-head" id="fcHead"></div><div class="chartbox" id="chart"></div><div class="next hide-xs" id="fcNext"></div></div>
       <div class="card cats" id="hCats"></div>
       <button class="card tip hide-short" data-go="consigli" id="hTip"></button>
     </section>
@@ -320,17 +327,67 @@ function renderHome(){
   $("#hTip").innerHTML=best?`<span><span class="kind k-${best.kind}">${KIND[best.kind]}</span><p>${esc(best.title)}</p></span><span class="go">›</span>`:`<span><span class="kind k-ok">Consigli</span><p>Aggiungi qualche movimento per ricevere suggerimenti.</p></span><span class="go">›</span>`;
   renderChart();
 }
+/* ---------- Previsione uscite ----------
+   Fisse: stessa categoria e nota in almeno 2 degli ultimi 3 mesi, attese nel loro giorno abituale.
+   Variabili: tutto il resto, proiettato alla media giornaliera degli ultimi 3 mesi. */
+function forecast(month){
+  const days=new Date(month.getFullYear(),month.getMonth()+1,0).getDate(), today=new Date();
+  const isCur=ym(month)===ym(today), isPast=month<addM(today,0);
+  const td=isCur?today.getDate():isPast?days:0;
+  const hist=[1,2,3].map(k=>{const d=addM(month,-k);return{tx:of(ym(d)).filter(t=>t.tipo==="uscita"),days:new Date(d.getFullYear(),d.getMonth()+1,0).getDate()}}).filter(h=>h.tx.length);
+  const key=t=>t.categoria+"|"+(t.nota||"");
+  const seen={};hist.forEach((h,i)=>h.tx.forEach(t=>{const k=key(t);(seen[k]=seen[k]||{months:new Set(),amt:[],day:[],t}).months.add(i);seen[k].amt.push(t.importo);seen[k].day.push(+t.data.slice(8))}));
+  const fixed=Object.entries(seen).filter(([,v])=>v.months.size>=2&&v.amt.length<=v.months.size*1.5).map(([k,v])=>{
+    const ds=v.day.sort((a,b)=>a-b);return{k,nome:v.t.nota||v.t.categoria,categoria:v.t.categoria,importo:v.amt.reduce((a,b)=>a+b,0)/v.amt.length,giorno:Math.min(days,ds[ds.length>>1])}});
+  const fk=new Set(fixed.map(f=>f.k));
+  const varTot=hist.reduce((s,h)=>s+sum(h.tx,t=>!fk.has(key(t))),0), varDays=hist.reduce((s,h)=>s+h.days,0);
+  const rate=varDays?varTot/varDays:0, avgOut=hist.length?hist.reduce((s,h)=>s+sum(h.tx),0)/hist.length:0;
+  const now=of(ym(month)).filter(t=>t.tipo==="uscita"), have=new Set(now.map(key));
+  const actual=[0];for(let d=1;d<=td;d++)actual.push(actual[d-1]+sum(now,t=>+t.data.slice(8)===d));
+  const due=fixed.filter(f=>!have.has(f.k));
+  const proj=[actual[td]];
+  for(let d=td+1;d<=days;d++){let v=rate;due.forEach(f=>{if(f.giorno===d||(f.giorno<=td&&d===td+1))v+=f.importo});proj.push(proj[proj.length-1]+v)}
+  const total=proj[proj.length-1];
+  // entrate attese: entrate ricorrenti non ancora arrivate
+  const inNow=of(ym(month)).filter(t=>t.tipo==="entrata"),inHave=new Set(inNow.map(key)),inSeen={};
+  [1,2,3].forEach(k=>of(ym(addM(month,-k))).filter(t=>t.tipo==="entrata").forEach(t=>{const kk=key(t);(inSeen[kk]=inSeen[kk]||[]).push(t.importo)}));
+  const inDue=Object.entries(inSeen).filter(([k,v])=>v.length>=2&&!inHave.has(k)).reduce((s,[,v])=>s+v.reduce((a,b)=>a+b,0)/v.length,0);
+  const income=ins(inNow)+inDue;
+  // prossime uscite fisse nei prossimi 30 giorni
+  const next=[];if(isCur||!isPast){const start=isCur?today:month;
+    for(let i=isCur?1:0;i<=30;i++){const d=new Date(start.getFullYear(),start.getMonth(),start.getDate()+i),dd=d.getDate(),dm=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
+      fixed.forEach(f=>{if(Math.min(f.giorno,dm)===dd&&!(ym(d)===ym(month)&&have.has(f.k)))next.push({...f,data:d})})}}
+  return{days,td,actual,proj,total,spent:actual[td],rate,avgOut,income,saldo:income-total,next,fixed,hasHist:hist.length>0};
+}
 function renderChart(){
-  const box=$("#chart"),W=box.clientWidth,H=box.clientHeight; if(!W||!H) return;
-  const ms=[...Array(6)].map((_,k)=>addM(cur,k-5)).map(d=>{const tx=of(ym(d));return{d,s:ins(tx)-outs(tx)}});
-  const mx=Math.max(100,...ms.map(x=>Math.abs(x.s))),neg=ms.some(x=>x.s<0);
-  const B=16,top=14,zero=neg?top+(H-B-top)/2:H-B, span=neg?(H-B-top)/2:H-B-top;
-  const cw=W/6,bw=Math.min(28,cw*.5); let g=`<line x1="0" x2="${W}" y1="${zero}" y2="${zero}" stroke="var(--line)"/>`;
-  ms.forEach((x,k)=>{const h=Math.abs(x.s)/mx*span,cx=cw*k+cw/2,sel=k===5,y=x.s>=0?zero-h:zero;
-    g+=`<rect x="${cx-bw/2}" y="${y}" width="${bw}" height="${Math.max(1,h)}" rx="4" fill="${x.s>=0?"var(--in)":"var(--out)"}" opacity="${sel?1:.45}"/>`;
-    if(sel&&h>0) g+=`<text x="${cx}" y="${x.s>=0?y-3:y+h+11}" text-anchor="middle" style="fill:var(--ink);font-weight:600">${eur(x.s)}</text>`;
-    g+=`<text x="${cx}" y="${H-3}" text-anchor="middle" style="${sel?"fill:var(--ink);font-weight:600":""}">${x.d.toLocaleDateString("it-IT",{month:"short"})}</text>`;});
-  box.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Saldo mensile degli ultimi sei mesi">${g}</svg>`;
+  const f=forecast(cur),mName=cur.toLocaleDateString("it-IT",{month:"long"});
+  const box=$("#chart");
+  $("#fcLabel").textContent=f.td===f.days?`Uscite di ${mName}`:`Previsione uscite di ${mName}`;
+  if(!f.hasHist&&!f.spent){$("#fcHead").innerHTML=`<small>Servono almeno un paio di mesi di movimenti per fare una previsione.</small>`;box.innerHTML="";$("#fcNext").innerHTML="";return}
+  const left=f.total-f.spent;
+  $("#fcHead").innerHTML=f.td===f.days
+    ?`<span><strong class="num">${eur(f.total)}</strong><small>totale del mese${f.avgOut?` · media ${eur(f.avgOut)}`:""}</small></span>`
+    :`<span><strong class="num">≈ ${eur(f.total)}</strong><small>a fine mese · spesi ${eur(f.spent)} · mancano ~${eur(left)}</small></span>
+      <span class="r"><small>saldo previsto</small><b class="num" style="color:var(--${f.saldo>=0?"in":"out"})">${f.saldo>=0?"+":"−"}${eur(Math.abs(f.saldo))}</b></span>`;
+  $("#fcNext").hidden=f.td===f.days;
+  $("#fcNext").innerHTML=f.next.length?f.next.slice(0,4).map(n=>`<span><em>${n.data.getDate()} ${n.data.toLocaleDateString("it-IT",{month:"short"})}</em> ${esc(n.nome)} ${eur(n.importo)}</span>`).join("")
+    :`<span><em>Nessuna uscita fissa nei prossimi 30 giorni</em></span>`;
+  const W=box.clientWidth,H=box.clientHeight; if(!W||!H) return;
+  const top=Math.max(f.total,f.avgOut,100)*1.08, L=4,R=W-4,T=6,B=H-15;
+  const x=d=>L+(R-L)*(d/f.days), y=v=>B-(B-T)*(v/top);
+  let g="";
+  if(f.avgOut){const ya=y(f.avgOut);g+=`<line x1="${L}" x2="${R}" y1="${ya}" y2="${ya}" stroke="var(--muted)" stroke-dasharray="2 4" opacity=".7"/><text x="${L+2}" y="${ya-4}">media ${eur(f.avgOut)}</text>`}
+  if(f.td>0){const pts=f.actual.map((v,d)=>`${x(d)},${y(v)}`).join(" ");
+    g+=`<polygon points="${x(0)},${B} ${pts} ${x(f.td)},${B}" fill="var(--out)" opacity=".14"/><polyline points="${pts}" fill="none" stroke="var(--out)" stroke-width="2.2" stroke-linejoin="round"/>`}
+  if(f.td<f.days){const pts=f.proj.map((v,i)=>`${x(f.td+i)},${y(v)}`).join(" ");
+    g+=`<polyline points="${pts}" fill="none" stroke="var(--out)" stroke-width="2" stroke-dasharray="5 4" opacity=".75"/>`;
+    g+=`<circle cx="${x(f.days)}" cy="${y(f.total)}" r="3.5" fill="var(--out)"/>`}
+  if(f.td>0&&f.td<f.days){g+=`<line x1="${x(f.td)}" x2="${x(f.td)}" y1="${T}" y2="${B}" stroke="var(--line)"/><circle cx="${x(f.td)}" cy="${y(f.spent)}" r="4" fill="var(--surface)" stroke="var(--out)" stroke-width="2"/>`}
+  g+=`<line x1="${L}" x2="${R}" y1="${B}" y2="${B}" stroke="var(--line)"/>`;
+  const ticks=[1,Math.round(f.days/2),f.days];if(f.td>0&&f.td<f.days)ticks.push(f.td);
+  [...new Set(ticks)].forEach(d=>{const isT=d===f.td&&f.td<f.days;
+    if(isT||Math.abs(x(d)-x(f.td))>28||f.td===0||f.td===f.days)g+=`<text x="${Math.min(R-8,Math.max(L+6,x(d)))}" y="${H-2}" text-anchor="middle" style="${isT?"fill:var(--ink);font-weight:600":""}">${isT?"oggi":d}</text>`});
+  box.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Uscite cumulate del mese e previsione fino a fine mese">${g}</svg>`;
 }
 
 /* ---------- Movimenti ---------- */
@@ -406,6 +463,10 @@ function advice(){
     items.push({kind:"profitto",impact:ex,title:`Le entrate arrivano solo da ${[...src][0]}`,
       text:`Anche ${eur(ex)} al mese in più (vendere oggetti che non usi, lavori extra, ripetizioni) porterebbe il risparmio al ${Math.round(nr*100)}%.`});}
 
+  // 9. previsione di fine mese
+  const fc=forecast(cur);
+  if(fc.td<fc.days&&fc.hasHist&&fc.avgOut&&fc.total>fc.avgOut*1.08) items.push({kind:"risparmio",impact:fc.total-fc.avgOut,title:`Previsione: ${eur(fc.total)} di uscite a fine mese`,
+    text:`È ${eur(fc.total-fc.avgOut)} sopra la tua media mensile (${eur(fc.avgOut)}). `+(fc.spent>=fc.avgOut?`Hai già superato la media con ${eur(fc.spent)} spesi: fino a fine mese limita le spese non essenziali.`:`Per restare nella media hai circa ${eur(fc.avgOut-fc.spent)} da spendere fino a fine mese, fisse comprese.`)});
   const order={futile:0,risparmio:1,profitto:2,ok:3};
   items.sort((a,b)=>order[a.kind]-order[b.kind]||b.impact-a.impact);
   return {items,avgIn,avgOut,surplus};
