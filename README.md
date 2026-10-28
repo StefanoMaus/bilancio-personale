@@ -4,4 +4,4 @@ Web app per registrare entrate e spese personali e ricevere consigli su risparmi
 
 - Funziona nel browser e si installa sul telefono (PWA): Safari › Condividi › Aggiungi alla schermata Home, oppure Chrome › ⋮ › Installa app.
 - I dati restano salvati solo sul dispositivo (localStorage), non in questo repository.
-- Assistente AI opzionale tramite [Ollama](https://ollama.com) in locale.
+- Assistente AI opzionale con Claude: la chiave API si inserisce nelle Opzioni e resta salvata solo sul dispositivo.

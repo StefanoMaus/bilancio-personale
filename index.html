@@ -119,7 +119,8 @@ svg text{fill:var(--muted);font-family:var(--body);font-size:11px}
 .k-futile{background:var(--bad-soft);color:var(--out)} .k-risparmio{background:var(--warn-soft);color:var(--warn)} .k-profitto{background:var(--gold-soft);color:var(--gold)} .k-ok{background:var(--accent-soft);color:var(--accent)}
 .impact{font-size:13px;font-weight:600;color:var(--accent)}
 .ai{display:grid;gap:8px}
-.ai pre{white-space:pre-wrap;font-family:var(--body);font-size:14px;margin:0;color:var(--ink);-webkit-user-select:text;user-select:text}
+.ai-out{white-space:pre-wrap;font-size:14px;line-height:1.5;color:var(--ink);-webkit-user-select:text;user-select:text}
+.ai-out.err{color:var(--out)}
 .note{font-size:12px;color:var(--muted);margin:0}
 
 /* Buttons and forms */
@@ -202,10 +203,10 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--a
       <div class="card summary" id="cSum"></div>
       <div id="cList" style="display:grid;gap:10px"></div>
       <div class="card ai">
-        <div class="head" style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0;font-size:15.5px">Assistente AI locale</h3><span class="kind k-ok">Ollama</span></div>
-        <p class="note">Chiede consigli personalizzati a un modello open source (Llama, Mistral, Qwen…) che gira sul tuo computer con Ollama. I tuoi dati non escono di casa.</p>
-        <button class="btn" id="aiAsk">Chiedi un parere all'assistente</button>
-        <pre id="aiOut" hidden></pre>
+        <div class="head" style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0;font-size:15.5px">Chiedi a Claude</h3><span class="kind k-ok">Claude</span></div>
+        <p class="note">Claude legge il riepilogo del mese (totali per categoria e analisi qui sopra, non i singoli movimenti) e ti dà consigli su misura. Serve internet e la chiave API in Opzioni.</p>
+        <button class="btn" id="aiAsk">Chiedi un parere a Claude</button>
+        <div class="ai-out" id="aiOut" hidden></div>
       </div>
       <p class="note">I consigli sono calcoli automatici sui tuoi movimenti, non consulenza finanziaria.</p>
     </section>
@@ -216,11 +217,10 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--a
         <label class="f"><span>Quota delle entrate da mettere da parte: <b id="goalVal"></b></span><input type="range" id="goal" min="5" max="50" step="5"></label>
       </div>
       <div class="card set">
-        <h2>Assistente AI (Ollama)</h2>
-        <label class="f">Indirizzo<input id="olUrl" type="url" inputmode="url" autocomplete="off"></label>
-        <label class="f">Modello<input id="olModel" type="text" autocomplete="off"></label>
-        <p class="note">Sul computer: installa Ollama da ollama.com, esegui <b>ollama pull llama3.2</b> e avvialo con <b>OLLAMA_ORIGINS=* ollama serve</b>.</p>
-        <button class="btn" id="olTest">Prova la connessione</button>
+        <h2>Assistente AI (Claude)</h2>
+        <label class="f">Chiave API Anthropic<input id="aiKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-ant-…"></label>
+        <p class="note">Creala su <b>console.anthropic.com</b> › API Keys (serve un piccolo credito prepagato, separato dall'abbonamento Claude). Resta salvata solo su questo dispositivo e viene inviata solo ad Anthropic. Ogni consiglio costa circa 2–3 centesimi.</p>
+        <div class="row2"><button class="btn" id="aiTest">Prova la chiave</button><button class="btn danger" id="aiDel">Rimuovi</button></div>
       </div>
       <div class="card set">
         <h2>Dati</h2>
@@ -296,7 +296,7 @@ function demo(){
     add(17,"uscita",rr(9,22),"Svago","Cinema");
     if(r()>.5) add(23,"uscita",rr(12,38),"Salute","Farmacia");
   }
-  return {demo:true,tx,goal:20,ollama:{url:"http://localhost:11434",model:"llama3.2"}};
+  return {demo:true,tx,goal:20};
 }
 
 let S;try{S=JSON.parse(localStorage.getItem(KEY)||"null")}catch(_){}
@@ -472,23 +472,48 @@ function renderAdvice(){
   $("#cList").innerHTML=a.items.map(x=>`<div class="card adv"><div class="head"><span class="kind k-${x.kind}">${KIND[x.kind]}</span>${x.impact>0&&x.kind!=="profitto"?`<span class="impact num">−${eur(x.impact)}/mese</span>`:x.kind==="profitto"&&x.impact?`<span class="impact num">+${eur(x.impact)}/mese</span>`:""}</div><h3>${esc(x.title)}</h3><p>${esc(x.text)}</p></div>`).join("");
 }
 
-/* ---------- Assistente AI locale (Ollama, open source) ---------- */
+/* ---------- Assistente AI: Claude (API Anthropic, chiave dell'utente salvata solo sul dispositivo) ---------- */
+const AI_KEY="bilancio-claude-key", MODEL="claude-opus-5-5";
+const SDK_URL="https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.133.0/+esm";
+const aiKey=()=>{try{return localStorage.getItem(AI_KEY)||""}catch(_){return ""}};
+let Anthropic;
+async function claudeClient(){
+  const key=aiKey(); if(!key) throw Object.assign(new Error("nokey"),{code:"nokey"});
+  if(!Anthropic){const m=await import(SDK_URL);Anthropic=m.default||m.Anthropic}
+  return new Anthropic({apiKey:key,dangerouslyAllowBrowser:true});
+}
+function aiError(e){
+  if(e.code==="nokey") return "Inserisci la tua chiave API in Opzioni › Assistente AI.";
+  if(!navigator.onLine) return "Serve una connessione a internet per chiedere a Claude.";
+  if(e.status===401) return "La chiave API non è valida. Controllala in Opzioni.";
+  if(e.status===429) return "Troppe richieste in poco tempo. Riprova tra un minuto.";
+  if(e.status===400&&/credit/i.test(e.message||"")) return "Il credito API è esaurito. Ricaricalo su console.anthropic.com › Billing.";
+  if(e.status>=500) return "Il servizio di Claude non risponde in questo momento. Riprova più tardi.";
+  return "Non riesco a contattare Claude ("+(e.message||"errore sconosciuto")+").";
+}
 async function askAI(){
-  const out=$("#aiOut"),btn=$("#aiAsk"),a=advice();
+  const out=$("#aiOut"),btn=$("#aiAsk"),a=advice(),f=forecast(cur);
   const by={};of(ym(cur)).filter(t=>t.tipo==="uscita").forEach(t=>by[t.categoria]=(by[t.categoria]||0)+t.importo);
-  const prompt=`Sei un consulente di finanza personale. Rispondi in italiano, in modo concreto, con al massimo 6 punti brevi.
-Dati del mese (${cur.toLocaleDateString("it-IT",{month:"long",year:"numeric"})}): entrate medie ${Math.round(a.avgIn)} €, uscite medie ${Math.round(a.avgOut)} €, obiettivo di risparmio ${S.goal}%.
+  const prompt=`Mese: ${cur.toLocaleDateString("it-IT",{month:"long",year:"numeric"})}.
+Entrate medie mensili: ${Math.round(a.avgIn)} €. Uscite medie mensili: ${Math.round(a.avgOut)} €. Obiettivo di risparmio: ${S.goal}% delle entrate.
 Spese di questo mese per categoria: ${Object.entries(by).map(([c,v])=>`${c} ${Math.round(v)} €`).join(", ")||"nessuna"}.
-Analisi automatica: ${a.items.map(x=>x.title).join("; ")}.
+Previsione uscite a fine mese: ${Math.round(f.total)} € (saldo previsto ${Math.round(f.saldo)} €).
+Analisi automatica dell'app: ${a.items.map(x=>x.title).join("; ")||"nessuna"}.
 Dammi consigli per: 1) ridurre le spese futili, 2) risparmiare di più, 3) generare profitto o entrate extra.`;
-  out.hidden=false;out.textContent="Sto chiedendo all'assistente…";btn.disabled=true;
+  out.hidden=false;out.classList.remove("err");out.textContent="Claude sta leggendo i tuoi conti…";btn.disabled=true;
   try{
-    const r=await fetch(S.ollama.url.replace(/\/$/,"")+"/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:S.ollama.model,prompt,stream:false})});
-    if(!r.ok) throw new Error(r.status===404?`modello "${S.ollama.model}" non trovato: esegui ollama pull ${S.ollama.model}`:"risposta "+r.status);
-    out.textContent=(await r.json()).response.trim();
-  }catch(e){
-    out.textContent=`Non riesco a raggiungere Ollama su ${S.ollama.url} (${e.message}). Controlla in Opzioni che sia avviato sul tuo computer con OLLAMA_ORIGINS=* ollama serve. Intanto i consigli qui sopra funzionano anche senza.`;
-  }finally{btn.disabled=false}
+    const client=await claudeClient();
+    const msg=await client.beta.messages.create({
+      model:MODEL, max_tokens:16000,
+      betas:["server-side-fallback-2026-07-01"], fallbacks:"default",
+      output_config:{effort:"low"},
+      system:"Sei un consulente di finanza personale che parla con una persona in Italia attraverso un'app sul telefono. Rispondi in italiano, in modo concreto e cordiale, con al massimo 6 punti brevi introdotti da un trattino. Usa le cifre in euro dei dati ricevuti. Testo semplice: niente titoli, tabelle o formattazione markdown. Non dare consigli su singoli titoli o prodotti finanziari specifici.",
+      messages:[{role:"user",content:prompt}],
+    });
+    if(msg.stop_reason==="refusal"){out.classList.add("err");out.textContent="Claude non ha risposto a questa richiesta. Riprova più tardi.";return}
+    out.textContent=msg.content.filter(b=>b.type==="text").map(b=>b.text).join("\n").replace(/\*\*(.+?)\*\*/g,"$1").trim()||"Nessuna risposta. Riprova.";
+  }catch(e){out.classList.add("err");out.textContent=aiError(e)}
+  finally{btn.disabled=false}
 }
 
 /* ---------- Navigazione ---------- */
@@ -504,7 +529,7 @@ function render(){
   if(view==="home") renderHome(); else if(view==="movimenti") renderList(); else if(view==="consigli") renderAdvice(); else renderSettings();
 }
 function renderSettings(){
-  $("#goal").value=S.goal;$("#goalVal").textContent=S.goal+"%";$("#olUrl").value=S.ollama.url;$("#olModel").value=S.ollama.model;
+  $("#goal").value=S.goal;$("#goalVal").textContent=S.goal+"%";$("#aiKey").value=aiKey();
   $("#dataNote").textContent=`${S.tx.length} movimenti salvati su questo dispositivo${S.demo?" (dati di esempio)":""}.`;
 }
 document.addEventListener("click",e=>{const g=e.target.closest("[data-go]");if(g)go(g.dataset.go)});
@@ -518,10 +543,10 @@ $("#list").onclick=e=>{
 };
 $("#aiAsk").onclick=askAI;
 $("#goal").oninput=e=>{S.goal=+e.target.value;$("#goalVal").textContent=S.goal+"%";save()};
-$("#olUrl").onchange=e=>{S.ollama.url=e.target.value.trim()||"http://localhost:11434";save()};
-$("#olModel").onchange=e=>{S.ollama.model=e.target.value.trim()||"llama3.2";save()};
-$("#olTest").onclick=async()=>{try{const r=await fetch(S.ollama.url.replace(/\/$/,"")+"/api/tags");const j=await r.json();
-  const names=(j.models||[]).map(m=>m.name);toast(names.length?`Connesso: ${names.length} modelli`:"Connesso, ma nessun modello scaricato")}catch(_){toast("Ollama non raggiungibile")}};
+$("#aiKey").onchange=e=>{const v=e.target.value.trim();try{v?localStorage.setItem(AI_KEY,v):localStorage.removeItem(AI_KEY)}catch(_){};if(v)toast("Chiave salvata su questo dispositivo")};
+$("#aiDel").onclick=()=>{try{localStorage.removeItem(AI_KEY)}catch(_){};$("#aiKey").value="";toast("Chiave rimossa")};
+$("#aiTest").onclick=async()=>{const b=$("#aiTest");b.disabled=true;
+  try{const c=await claudeClient();await c.models.retrieve(MODEL);toast("Chiave valida: Claude è pronto")}catch(e){toast(aiError(e))}finally{b.disabled=false}};
 $("#wipe").onclick=()=>{const b=$("#wipe");if(b.dataset.armed!=="1"){b.dataset.armed="1";b.textContent="Tocca ancora per confermare";setTimeout(()=>{b.dataset.armed="";b.textContent="Cancella tutti i movimenti"},3000);return}
   S.tx=[];S.demo=false;save();b.dataset.armed="";b.textContent="Cancella tutti i movimenti";renderSettings();toast("Movimenti cancellati")};
 $("#csv").onclick=()=>{const rows=["data;tipo;importo;categoria;nota",...S.tx.slice().sort((a,b)=>a.data.localeCompare(b.data)).map(t=>[t.data,t.tipo,String(t.importo).replace(".",","),t.categoria,(t.nota||"").replace(/;/g,",")].join(";"))];
