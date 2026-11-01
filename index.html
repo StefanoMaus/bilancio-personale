@@ -157,6 +157,15 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--a
 .chips{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .chips button{padding:8px 4px;border-radius:10px;border:1px solid var(--line);font-size:12.5px;line-height:1.15;min-height:40px}
 .chips button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+.chips{max-height:134px;overflow-y:auto;overscroll-behavior:contain}
+.chips button.new{border-style:dashed;color:var(--accent)}
+.newcat{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
+.newcat .chk{grid-column:1/-1;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.newcat .chk input{width:18px;height:18px;padding:0;accent-color:var(--accent)}
+.newcat .btn{width:auto;padding:9px 14px}
+.mycats{display:flex;flex-wrap:wrap;gap:6px}
+.mycats span{display:inline-flex;align-items:center;gap:4px;padding:4px 4px 4px 10px;border-radius:999px;background:var(--grid);font-size:13px}
+.mycats button{width:24px;height:24px;border-radius:50%;color:var(--muted);font-size:15px}
 .err{color:var(--out);font-size:13px;min-height:1em;margin:0;text-align:center}
 .toast{position:absolute;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);
   padding:8px 14px;border-radius:999px;font-size:13.5px;z-index:30;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
@@ -223,6 +232,11 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--a
         <div class="row2"><button class="btn" id="aiTest">Prova la chiave</button><button class="btn danger" id="aiDel">Rimuovi</button></div>
       </div>
       <div class="card set">
+        <h2>Le tue categorie</h2>
+        <div class="mycats" id="myCats"></div>
+        <p class="note">Le crei dal pulsante + Nuova quando aggiungi un movimento. Togliendone una, i movimenti già salvati la mantengono.</p>
+      </div>
+      <div class="card set">
         <h2>Dati</h2>
         <button class="btn" id="csv">Esporta CSV</button>
         <button class="btn danger" id="wipe">Cancella tutti i movimenti</button>
@@ -249,6 +263,11 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--a
       <div class="seg" id="tipo" role="group" aria-label="Tipo"><button type="button" aria-pressed="true" data-t="uscita">Uscita</button><button type="button" aria-pressed="false" data-t="entrata">Entrata</button></div>
       <div class="amount"><input id="fAmt" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Importo"><span>€</span></div>
       <div class="chips" id="chips"></div>
+      <div class="newcat" id="newCat" hidden>
+        <input id="fNewCat" type="text" maxlength="24" placeholder="Nome della categoria, es. Palestra" autocomplete="off" aria-label="Nuova categoria">
+        <button type="button" class="btn primary" id="addCat">Aggiungi</button>
+        <label class="chk" id="newDiscRow"><input type="checkbox" id="fNewDisc"> Spesa non essenziale (conta nei consigli sulle spese futili)</label>
+      </div>
       <div class="row2"><label class="f">Data<input id="fDate" type="date"></label><label class="f">Nota<input id="fNote" type="text" placeholder="facoltativa" autocomplete="off"></label></div>
       <p class="err" id="fErr"></p>
       <div class="row2"><button type="button" class="btn" id="cancel">Annulla</button><button type="submit" class="btn primary">Salva</button></div>
@@ -264,8 +283,11 @@ const KEY="bilancio-personale-v1";
 const OUT=[["Casa",0,"#2f6fb0"],["Bollette",0,"#5b7fa6"],["Spesa",0,"#1f6f5c"],["Trasporti",0,"#7a6a4f"],["Salute",0,"#3a8f8f"],["Abbonamenti",1,"#7a5bb5"],
   ["Ristoranti",1,"#c2553a"],["Delivery",1,"#d06a3c"],["Caffè e snack",1,"#a0662b"],["Shopping",1,"#b5487a"],["Svago",1,"#8a5bb5"],["Altro",0,"#6b7a80"]];
 const IN=[["Stipendio",0,"#1f6f5c"],["Extra",0,"#2e8b57"],["Rimborsi",0,"#3a8f8f"],["Rendite",0,"#2f6fb0"],["Altro",0,"#6b7a80"]];
-const DISC=new Set(OUT.filter(c=>c[1]).map(c=>c[0]));
-const colOf=(c,t)=>((t==="entrata"?IN:OUT).find(x=>x[0]===c)||[0,0,"#6b7a80"])[2];
+const CUSTOM_COL=["#4f7d3a","#9a5b2f","#2f8a8a","#8a3f6b","#5a5fb0","#a07a1f","#3f6f8f","#b0533f"];
+// categorie create dall'utente: S.custom = {uscita:[[nome,nonEssenziale,colore]], entrata:[...]}; "Altro" resta sempre in fondo
+const catsOf=tp=>{const base=tp==="entrata"?IN:OUT,mine=(S.custom&&S.custom[tp])||[];return[...base.filter(c=>c[0]!=="Altro"),...mine,base.find(c=>c[0]==="Altro")]};
+const isDisc=c=>catsOf("uscita").some(x=>x[0]===c&&x[1]);
+const colOf=(c,t)=>(catsOf(t==="entrata"?"entrata":"uscita").find(x=>x[0]===c)||[0,0,"#6b7a80"])[2];
 
 const pad=n=>String(n).padStart(2,"0");
 const ym=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}`;
@@ -301,6 +323,7 @@ function demo(){
 
 let S;try{S=JSON.parse(localStorage.getItem(KEY)||"null")}catch(_){}
 if(!S||!Array.isArray(S.tx)) S=demo();
+if(!S.custom) S.custom={uscita:[],entrata:[]};
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(_){}};
 let cur=addM(new Date(),0), view="home", filt="", tipo="uscita", cat="Spesa";
 
@@ -389,7 +412,7 @@ function renderList(keep){
   rows.forEach(t=>{
     if(t.data!==day){day=t.data;html+=`<div class="day">${new Date(t.data+"T12:00").toLocaleDateString("it-IT",{weekday:"long",day:"numeric",month:"long"})}</div>`}
     html+=`<div class="item" data-id="${t.id}" role="button" tabindex="0"><span class="ic" style="background:${colOf(t.categoria,t.tipo)}">${esc(t.categoria.slice(0,2))}</span>
-      <span class="n">${esc(t.nota||t.categoria)}<small>${esc(t.categoria)}${DISC.has(t.categoria)?" · non essenziale":""}</small></span>
+      <span class="n">${esc(t.nota||t.categoria)}<small>${esc(t.categoria)}${isDisc(t.categoria)?" · non essenziale":""}</small></span>
       <span class="a num" style="color:var(--${t.tipo==="entrata"?"in":"out"})">${t.tipo==="entrata"?"+":"−"}${eur(t.importo,true)}</span>
       <button class="del" data-del="${t.id}">Elimina</button></div>`});
   $("#list").innerHTML=html||`<div class="empty">Nessun movimento in questo mese.<br>Tocca + per aggiungerne uno.</div>`;
@@ -414,7 +437,7 @@ function advice(){
   else items.push({kind:"ok",impact:0,title:`Risparmi il ${Math.round(rate*100)}% delle entrate`,text:`Sei sopra il tuo obiettivo del ${S.goal}%. Mantieni questo ritmo e valuta di alzarlo nelle opzioni.`});
 
   // 2. piccoli acquisti frequenti
-  const small={};all.filter(t=>t.tipo==="uscita"&&DISC.has(t.categoria)&&t.importo<=15).forEach(t=>{(small[t.categoria]=small[t.categoria]||[]).push(t.importo)});
+  const small={};all.filter(t=>t.tipo==="uscita"&&isDisc(t.categoria)&&t.importo<=15).forEach(t=>{(small[t.categoria]=small[t.categoria]||[]).push(t.importo)});
   Object.entries(small).forEach(([c,v])=>{const per=v.length/n,tot=v.reduce((a,b)=>a+b,0)/n;
     if(per>=6) items.push({kind:"futile",impact:tot/2,title:`${Math.round(per)} piccoli acquisti al mese in ${c}`,
       text:`Sembrano poco (in media ${eur(tot*n/v.length,true)} l'uno) ma fanno ${eur(tot)} al mese, ${eur(tot*12)} all'anno. Dimezzarli vale ${eur(tot*6)} all'anno.`})});
@@ -434,11 +457,11 @@ function advice(){
   // 5. categorie che crescono questo mese
   if(base.length){const by={};now.filter(t=>t.tipo==="uscita").forEach(t=>by[t.categoria]=(by[t.categoria]||0)+t.importo);
     Object.entries(by).forEach(([c,v])=>{const a=catAvg[c]||0;
-      if(v-a>30&&v>a*1.3) items.push({kind:DISC.has(c)?"futile":"risparmio",impact:v-a,title:`${c} in aumento: ${eur(v)} questo mese`,
+      if(v-a>30&&v>a*1.3) items.push({kind:isDisc(c)?"futile":"risparmio",impact:v-a,title:`${c} in aumento: ${eur(v)} questo mese`,
         text:`La tua media degli ultimi mesi è ${eur(a)}: sei ${eur(v-a)} sopra${a?` (+${Math.round((v/a-1)*100)}%)`:""}. Se non era previsto, rallenta fino a fine mese.`})});}
 
   // 6. peso delle spese non essenziali (regola 50/30/20)
-  const disc=Object.entries(catAvg).filter(([c])=>DISC.has(c)).reduce((a,b)=>a+b[1],0);
+  const disc=Object.entries(catAvg).filter(([c])=>isDisc(c)).reduce((a,b)=>a+b[1],0);
   if(avgIn&&disc/avgIn>.3) items.push({kind:"futile",impact:disc-.3*avgIn,title:`Spese non essenziali al ${Math.round(disc/avgIn*100)}% delle entrate`,
     text:`La regola 50/30/20 suggerisce al massimo il 30% per i desideri. Rientrare vale ${eur(disc-.3*avgIn)} al mese.`});
 
@@ -530,6 +553,8 @@ function render(){
 }
 function renderSettings(){
   $("#goal").value=S.goal;$("#goalVal").textContent=S.goal+"%";$("#aiKey").value=aiKey();
+  const mine=[...S.custom.uscita.map(c=>[c,"uscita"]),...S.custom.entrata.map(c=>[c,"entrata"])];
+  $("#myCats").innerHTML=mine.length?mine.map(([c,tp])=>`<span><i class="dot" style="width:9px;height:9px;border-radius:50%;background:${c[2]}"></i>${esc(c[0])}${tp==="entrata"?" (entrata)":""}<button type="button" data-delcat="${esc(c[0])}" data-tp="${tp}" aria-label="Rimuovi ${esc(c[0])}">×</button></span>`).join(""):`<span style="background:none;padding:0;color:var(--muted)">Nessuna categoria personalizzata.</span>`;
   $("#dataNote").textContent=`${S.tx.length} movimenti salvati su questo dispositivo${S.demo?" (dati di esempio)":""}.`;
 }
 document.addEventListener("click",e=>{const g=e.target.closest("[data-go]");if(g)go(g.dataset.go)});
@@ -553,21 +578,38 @@ $("#csv").onclick=()=>{const rows=["data;tipo;importo;categoria;nota",...S.tx.sl
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["﻿"+rows.join("\n")],{type:"text/csv"}));a.download="bilancio.csv";a.click();toast("CSV esportato")};
 
 /* ---------- Inserimento ---------- */
-function chips(){const list=tipo==="entrata"?IN:OUT;if(!list.some(c=>c[0]===cat))cat=list[0][0];
-  $("#chips").innerHTML=list.map(c=>`<button type="button" aria-pressed="${c[0]===cat}" data-c="${c[0]}">${c[0]}</button>`).join("")}
+function chips(){const list=catsOf(tipo);if(!list.some(c=>c[0]===cat))cat=list[0][0];
+  $("#chips").innerHTML=list.map(c=>`<button type="button" aria-pressed="${c[0]===cat}" data-c="${esc(c[0])}">${esc(c[0])}</button>`).join("")+`<button type="button" class="new" data-new="1">+ Nuova</button>`;
+  $("#newDiscRow").hidden=tipo==="entrata"}
+function addCategory(){
+  const name=$("#fNewCat").value.trim().replace(/\s+/g," ");
+  if(!name){$("#fErr").textContent="Scrivi il nome della nuova categoria.";return false}
+  const nm=name.charAt(0).toUpperCase()+name.slice(1);
+  const found=catsOf(tipo).find(c=>c[0].toLowerCase()===nm.toLowerCase());
+  if(found) cat=found[0];
+  else{const n=S.custom.uscita.length+S.custom.entrata.length;S.custom[tipo].push([nm,tipo==="uscita"&&$("#fNewDisc").checked?1:0,CUSTOM_COL[n%CUSTOM_COL.length]]);cat=nm;save()}
+  $("#fNewCat").value="";$("#fNewDisc").checked=false;$("#newCat").hidden=true;$("#fErr").textContent="";chips();
+  const sel=$("#chips [aria-pressed=\"true\"]");sel&&sel.scrollIntoView({block:"nearest"});return true}
 function openSheet(){tipo="uscita";$$("#tipo button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.t===tipo));chips();
-  $("#fAmt").value="";$("#fNote").value="";$("#fErr").textContent="";
+  $("#fAmt").value="";$("#fNote").value="";$("#fErr").textContent="";$("#newCat").hidden=true;$("#fNewCat").value="";
   const t=new Date();$("#fDate").value=`${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}`;
   $("#sheet").classList.add("on");setTimeout(()=>$("#fAmt").focus(),260)}
 const closeSheet=()=>{$("#sheet").classList.remove("on");document.activeElement&&document.activeElement.blur()};
 $("#addBtn").onclick=openSheet; $("#cancel").onclick=closeSheet;
 $("#sheet").onclick=e=>{if(e.target.id==="sheet")closeSheet()};
 $("#tipo").onclick=e=>{const b=e.target.closest("button");if(!b)return;tipo=b.dataset.t;$$("#tipo button").forEach(x=>x.setAttribute("aria-pressed",x===b));chips()};
-$("#chips").onclick=e=>{const b=e.target.closest("button");if(!b)return;cat=b.dataset.c;$$("#chips button").forEach(x=>x.setAttribute("aria-pressed",x===b))};
+$("#chips").onclick=e=>{const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.new){$("#newCat").hidden=false;$("#fNewCat").focus();return}
+  cat=b.dataset.c;$("#newCat").hidden=true;$$("#chips button").forEach(x=>x.setAttribute("aria-pressed",x===b))};
+$("#addCat").onclick=addCategory;
+$("#fNewCat").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();addCategory()}};
+$("#myCats").onclick=e=>{const b=e.target.closest("[data-delcat]");if(!b)return;
+  S.custom[b.dataset.tp]=S.custom[b.dataset.tp].filter(c=>c[0]!==b.dataset.delcat);save();renderSettings();toast(`Categoria ${b.dataset.delcat} rimossa`)};
 $("#entry").onsubmit=e=>{e.preventDefault();
   const v=parseFloat($("#fAmt").value.replace(/\./g,"").replace(",","."));
   if(!(v>0)){$("#fErr").textContent="Scrivi un importo maggiore di zero, per esempio 12,50.";return}
   if(!$("#fDate").value){$("#fErr").textContent="Scegli una data.";return}
+  if(!$("#newCat").hidden&&$("#fNewCat").value.trim()&&!addCategory()) return;
   const t={id:uid(),data:$("#fDate").value,tipo,importo:Math.round(v*100)/100,categoria:cat,nota:$("#fNote").value.trim()};
   S.tx.push(t);save();cur=new Date(+t.data.slice(0,4),+t.data.slice(5,7)-1,1);closeSheet();render();
   toast(`${tipo==="entrata"?"Entrata":"Uscita"} di ${eur(t.importo,true)} salvata`)};
